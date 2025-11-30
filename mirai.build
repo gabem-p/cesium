@@ -1,0 +1,7 @@
+[project]
+name:cesium
+language:c
+
+[include]
+path:.
+lib:mstd

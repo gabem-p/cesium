@@ -1,0 +1,7 @@
+BasedOnStyle: llvm
+IndentWidth: 4
+DerivePointerAlignment: false
+PointerAlignment: Left
+ColumnLimit: 0
+SortIncludes: Never
+SkipMacroDefinitionBody: true
