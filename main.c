@@ -8,6 +8,6 @@
 int main(int argc, string argv[]) {
     pthread_t networkThread;
     pthread_create(&networkThread, null, thread_network_main, null);
-    ccm_log_info("cesium:main", "started network thread");
+    log_info("cesium:main", "started network thread");
     pthread_join(networkThread, null);
 }

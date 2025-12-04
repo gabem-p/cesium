@@ -1,6 +1,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <mstd/common.h>
+#include <mstd/types/stack.h>
 #include "src/logging.h"
 #include "src/packets/handshake.h"
 #include "src/packets/status.h"
@@ -90,15 +91,15 @@ enum packet_handle_status packet_handle(net_connection* connection, byte* data) 
     switch (connection->state) {
     case STATE_HANDSHAKING:
         search_sb(PACKET_FORMATS_HANDSHAKING);
-        ccm_log_warning_f("cesium:network", "unknown packet with id handshaking:%i", id);
+        log_warning("cesium:network", "unknown packet with id handshaking:%i", id);
         return HANDLE_UNKNOWN;
     case STATE_STATUS:
         search_sb(PACKET_FORMATS_STATUS);
-        ccm_log_warning_f("cesium:network", "unknown packet with id status:%i", id);
+        log_warning("cesium:network", "unknown packet with id status:%i", id);
         return HANDLE_UNKNOWN;
     case STATE_LOGIN:
         search_sb(PACKET_FORMATS_LOGIN);
-        ccm_log_warning_f("cesium:network", "unknown packet with id login:%i", id);
+        log_warning("cesium:network", "unknown packet with id login:%i", id);
         return HANDLE_UNKNOWN;
     }
 
@@ -107,6 +108,8 @@ found:
     byte* packet = malloc(format.size);
     for (uint j = 0; j < sizeof(enum packet_id); j++)
         packet[n++] = ((byte*)&id)[j];
+
+    stack* allocStack = stack_new(256);
 
     uint formatLength = strlen(format.format);
     for (uint i = 0; i < formatLength; i++) {
@@ -147,7 +150,7 @@ found:
             int length;
             data += decode_varint(data, &length);
             if ((size != 0 && length > size) || (size == 0 && length >= 32768)) {
-                ccm_log_error("cesium:network", "packet string exceeded max character count");
+                log_error("cesium:network", "packet string exceeded max character count");
                 goto error;
             }
             string str = malloc(length + 1);
@@ -156,6 +159,7 @@ found:
             str[length] = '\0';
             for (uint j = 0; j < sizeof(string); j++)
                 packet[n++] = ((byte*)&str)[j];
+            stack_push(allocStack, str);
             break;
         }
 
@@ -166,6 +170,9 @@ found:
         status = HANDLE_SUCCESS;
 
 error:
+    for (uint i = 0; i < allocStack->count; i++)
+        free(stack_pop(allocStack));
+    stack_cleanup(allocStack);
     free(packet);
     return status;
 }
@@ -272,5 +279,4 @@ found:
     send(connection->sock, buffer, n, 0);
 
     free(buffer);
-    ccm_log_info_f("cesium:network", "sent packet to <%i> id:%i length:%i bytes:%i", connection->sock, id, n + idBufferSize, n + idBufferSize + lengthBufferSize);
 }

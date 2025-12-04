@@ -1,6 +1,5 @@
 #include <mstd/common.h>
 #include "src/network.h"
-#include "src/logging.h"
 #include "src/packets/packets.h"
 
 #include "status.h"

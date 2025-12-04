@@ -2,8 +2,6 @@
 
 #include <mstd/common.h>
 
-void* thread_network_main();
-
 enum connection_state {
     STATE_HANDSHAKING,
     STATE_STATUS,
@@ -15,3 +13,5 @@ typedef struct {
     ulong thread;
     enum connection_state state;
 } net_connection;
+
+void* thread_network_main();

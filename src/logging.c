@@ -9,22 +9,7 @@
 #define COLOR_WARN "\033[33m"
 #define COLOR_RESET "\033[0m"
 
-void ccm_log_info(string source, string message) {
-    printf("[%sINFO%s] [%s%s%s] %s\n",
-           COLOR_INFO, COLOR_RESET, COLOR_SOURCE, source, COLOR_RESET, message);
-}
-
-void ccm_log_warning(string source, string message) {
-    printf("[%sWARN%s] [%s%s%s] %s%s%s\n",
-           COLOR_WARN, COLOR_RESET, COLOR_SOURCE, source, COLOR_RESET, COLOR_WARN, message, COLOR_RESET);
-}
-
-void ccm_log_error(string source, string message) {
-    fprintf(stderr, "[%sERRR%s] [%s%s%s] %s%s%s\n",
-            COLOR_ERROR, COLOR_RESET, COLOR_SOURCE, source, COLOR_RESET, COLOR_ERROR, message, COLOR_RESET);
-}
-
-void ccm_log_info_f(string source, string message, ...) {
+void log_info(string source, string message, ...) {
     va_list args;
     va_start(args, message);
 
@@ -36,7 +21,7 @@ void ccm_log_info_f(string source, string message, ...) {
     va_end(args);
 }
 
-void ccm_log_warning_f(string source, string message, ...) {
+void log_warning(string source, string message, ...) {
     va_list args;
     va_start(args, message);
 
@@ -48,7 +33,7 @@ void ccm_log_warning_f(string source, string message, ...) {
     va_end(args);
 }
 
-void ccm_log_error_f(string source, string message, ...) {
+void log_error(string source, string message, ...) {
     va_list args;
     va_start(args, message);
 

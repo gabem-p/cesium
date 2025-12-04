@@ -15,6 +15,7 @@
 void* thread_network_connection(void* arg) {
     net_connection* connection = arg;
     byte lengthBuffer[3];
+
     while (true) {
         for (uint bytes = 0; bytes < 3;) {
             bytes += recv(connection->sock, lengthBuffer + bytes, 1, 0);
@@ -38,7 +39,6 @@ void* thread_network_connection(void* arg) {
 
 terminate:
     close(connection->sock);
-    ccm_log_info_f("cesium:network", "socket <%i> disconnected", connection->sock);
     free(connection);
     pthread_exit(EXIT_SUCCESS);
 }
@@ -52,42 +52,41 @@ void* thread_network_main() {
     struct addrinfo* results;
     bool error = getaddrinfo(null, PORT, &hints, &results);
     if (error) {
-        ccm_log_error_f("cesium:network", "getaddrinfo() failed with message: %s", gai_strerror(error));
+        log_error("cesium:network", "getaddrinfo() failed with message: %s", gai_strerror(error));
         pthread_exit(EXIT_FAILURE);
     }
 
     int sock = socket(results->ai_family, results->ai_socktype, results->ai_protocol);
     setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &(int){true}, sizeof(int));
     if (sock == -1) {
-        ccm_log_error_f("cesium:network", "socket() failed with message: %s", strerror(errno));
+        log_error("cesium:network", "socket() failed with message: %s", strerror(errno));
         pthread_exit(EXIT_FAILURE);
     }
     if (bind(sock, results->ai_addr, results->ai_addrlen) == -1) {
-        ccm_log_error_f("cesium:network", "bind() failed with message: %s", strerror(errno));
+        log_error("cesium:network", "bind() failed with message: %s", strerror(errno));
         close(sock);
         pthread_exit(EXIT_FAILURE);
     }
     if (listen(sock, 10) == -1) {
-        ccm_log_error_f("cesium:network", "listen() failed with message: %s", strerror(errno));
+        log_error("cesium:network", "listen() failed with message: %s", strerror(errno));
         close(sock);
         pthread_exit(EXIT_FAILURE);
     }
-    ccm_log_info("cesium:network", "ready to accept connections");
 
     while (true) {
         int newsock = accept(sock, null, null);
         if (newsock == -1) {
-            ccm_log_error_f("cesium:network", "accept() failed with message: %s", strerror(errno));
+            log_error("cesium:network", "accept() failed with message: %s", strerror(errno));
             close(sock);
             pthread_exit(EXIT_FAILURE);
         }
-        ccm_log_info_f("cesium:network", "connected socket <%i>", newsock);
 
         net_connection* connection = malloc(sizeof(net_connection));
         connection->sock = newsock;
         connection->state = STATE_HANDSHAKING;
 
         pthread_create(&connection->thread, null, thread_network_connection, connection);
+        pthread_detach(connection->thread);
     }
 
     close(sock);
