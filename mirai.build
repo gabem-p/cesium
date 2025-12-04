@@ -1,6 +1,7 @@
 [project]
 name:cesium
 language:c
+flag:g
 
 [include]
 path:.
