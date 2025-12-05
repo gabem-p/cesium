@@ -25,7 +25,7 @@ const packet_format PACKET_FORMATS_STATUS[] = {
 
 const packet_format PACKET_FORMATS_LOGIN[] = {
     {.id = PACKET_ID_SB_L_START, .size = sizeof(packet_sb_l_start), .handler = sb_l_start_handler, .format = "s16 u128"},
-    {.id = PACKET_ID_CB_L_SUCCESS, .size = sizeof(packet_cb_l_success), .handler = null, .format = "u128 s16 v32"}, // u128 s16 v32[s64 s ?s1024]
+    {.id = PACKET_ID_CB_L_SUCCESS, .size = sizeof(packet_cb_l_success), .handler = null, .format = "u128 s16 v32 [s64 s ?s1024]"},
 };
 
 byte decode_varint(byte* start, int* out) {
@@ -78,109 +78,125 @@ byte encode_varlong(byte* start, long value) {
     return i;
 }
 
-byte* do_packet_handle_format(byte* data, string format, uint formatLength, stack* allocStack, byte* packet, uint n) {
+byte* decode_packet_format(byte* in, byte* out, string format, uint formatLength, stack* allocStack) {
+    int previousValue = 0;
+    bool nextPresent = true;
     for (uint i = 0; i < formatLength; i++) {
-        char type;
-        long size = 0;
-        bool array = false;
-        int arraySize = 0;
-        bool present = true;
-
-        if (format[i++] == '?') {
-            present = *(data++);
-            packet[n++] = present;
+        if (format[i] == '?') {
+            nextPresent = *(in++);
+            *(out++) = nextPresent;
+            continue;
         }
-
-        type = format[i++];
-
-        if (format[i] != ' ' &&
-            format[i] != '[' &&
-            format[i] != ']') {
-            uint start = i;
-            while (format[i] != ' ' &&
-                   format[i] != '[' &&
-                   format[i] != ']') {
-                i++;
-            }
-            char* end = format + i;
-            size = strtol(format + start, &end, 10);
-        }
-
         if (format[i] == '[') {
-            array = true;
-            i++;
-        }
 
-        if (present) {
-            switch (type) {
-            case 'u':
-            case 'i':
-                for (uint j = 0; j < size / 8; j++)
-                    packet[n - j - 1] = *(data++);
-                if (array && size == 32)
-                    arraySize = *(int*)(packet + n);
-                if (array && size == 16)
-                    arraySize = *(short*)(packet + n);
-                if (array && size == 8)
-                    arraySize = *(byte*)(packet + n);
-                n += size / 8;
-                break;
-            case 'v':
-                if (size == 32) {
-                    int value;
-                    data += decode_varint(data, &value);
-                    for (uint j = 0; j < sizeof(int); j++)
-                        packet[n++] = ((byte*)&value)[j];
-                    if (array)
-                        arraySize = value;
-                } else if (size == 64) {
-                    long value;
-                    data += decode_varlong(data, &value);
-                    for (uint j = 0; j < sizeof(long); j++)
-                        packet[n++] = ((byte*)&value)[j];
+            uint length = 0;
+            uint size = 0;
+            uint depth = 1;
+            while (true) {
+                length++;
+                switch (format[i + length]) {
+                case '[':
+                    depth++;
+                    break;
+                case ']':
+                    depth--;
+                    if (depth == 0)
+                        goto done;
+                    break;
+                case 's':
+                    size += sizeof(void*);
+                    break;
+                case '?':
+                case 'b':
+                    size += 1;
+                    break;
+                case 'u':
+                case 'i':
+                case 'v':;
+                    char* start = format + i + length;
+                    char* end = start;
+                    while (*end != ' ')
+                        end++;
+                    size += strtol(start, &end, 10) / 8;
+                    break;
                 }
-                break;
-            case 'b':
-                packet[n++] = *(data++);
-                break;
-            case 's':
-                int length;
-                data += decode_varint(data, &length);
-                if ((size != 0 && length > size) || (size == 0 && length >= 32768)) {
-                    log_error("cesium:network", "packet string exceeded max character count");
-                    return null;
-                }
-                string str = malloc(length + 1);
-                for (uint j = 0; j < length; j++)
-                    str[j] = *(data++);
-                str[length] = '\0';
-                for (uint j = 0; j < sizeof(string); j++)
-                    packet[n++] = ((byte*)&str)[j];
-                stack_push(allocStack, str);
-                break;
-            case '#':
-                arraySize = size;
-                break;
             }
+        done:
+            if (previousValue == 0) {
+                for (uint j = 0; j < sizeof(void*); i++)
+                    *(out++) = 0;
+            } else {
+                byte* buffer = malloc(size * previousValue);
+                stack_push(allocStack, buffer);
+                for (uint j = 0; j < previousValue; j++) {
+                    in = decode_packet_format(in, buffer + (j * size), format + i + 1, length, allocStack);
+                    if (in == null)
+                        return null;
+                }
+            }
+            i += length + 1;
         }
 
-        if (array && present) {
-            uint j = 0;
-            while (format[j + 1] != ']')
-                j++;
-            data = do_packet_handle_format(data, format + i, j, allocStack, packet, n);
-            if (data == null)
+        char type = format[i];
+        uint size = 0;
+        if (format[i++] > '0' && format[i] < '9') {
+            char* start = format + i;
+            char* end = start;
+            while (*end != ' ')
+                end++;
+            size = strtol(start, &end, 10);
+            i += end - start;
+        }
+        previousValue = 0;
+
+        if (!nextPresent)
+            continue;
+
+        switch (type) {
+        case 'u':
+        case 'i':
+            out += size / 8;
+            for (uint j = 0; j < size / 8; j++)
+                *(out - j - 1) = *(in++);
+            previousValue = *((int*)out - size / 8);
+            break;
+        case 'b':
+            *(out++) = *(in++);
+            break;
+        case 'v':
+            if (size == 32) {
+                int value;
+                in += decode_varint(in, &value);
+                previousValue = value;
+                for (uint j = 0; j < sizeof(int); j++) {
+                    *(out++) = ((byte*)&value)[j];
+                }
+            } else if (size == 128) {
+                long value;
+                in += decode_varlong(in, &value);
+                for (uint j = 0; j < sizeof(long); j++)
+                    *(out++) = ((byte*)&value)[j];
+            }
+            break;
+        case 's':
+            int length;
+            in += decode_varint(in, &length);
+            if ((size > 0 && length > size) || (size == 0 && length > 32767)) {
+                log_error("cesium:network", "packet string exceeded max length");
                 return null;
+            }
+            string buffer = malloc(length + 1);
+            stack_push(allocStack, buffer);
+            for (uint j = 0; j < length; j++)
+                buffer[j] = *(in++);
+            buffer[length] = '\0';
+            for (uint j = 0; j < sizeof(string); j++)
+                *(out++) = ((byte*)&buffer)[j];
+            break;
         }
-        if (array) {
-            while (format[i] != ']')
-                i++;
-            i++;
-        }
-
-        i++;
     }
-    return data;
+
+    return in;
 }
 
 enum packet_handle_status packet_handle(net_connection* connection, byte* data) {
@@ -215,24 +231,134 @@ enum packet_handle_status packet_handle(net_connection* connection, byte* data) 
     }
 
 found:
-    uint n = 0;
     byte* packet = malloc(format.size);
+    byte* packetWrite = packet;
     for (uint j = 0; j < sizeof(enum packet_id); j++)
-        packet[n++] = ((byte*)&id)[j];
+        *(packetWrite++) = ((byte*)&id)[j];
 
-    stack* allocStack = stack_new(256);
+    stack* allocStack = stack_new(1024);
 
-    do_packet_handle_format(data, format.format, strlen(format.format), allocStack, packet, n);
+    if (decode_packet_format(data, packetWrite, format.format, strlen(format.format), allocStack) != null) {
+        if (format.handler(connection, packet))
+            status = HANDLE_SUCCESS;
+    }
 
-    if (format.handler(connection, packet))
-        status = HANDLE_SUCCESS;
-
-error:
     for (uint i = 0; i < allocStack->count; i++)
         free(stack_pop(allocStack));
     stack_cleanup(allocStack);
     free(packet);
+
     return status;
+}
+
+typedef struct {
+    byte* data;
+    uint size;
+    uint n;
+} packet_buffer;
+
+packet_buffer encode_packet_format(byte* in, packet_buffer out, string format, uint formatLength) {
+    int previousValue = 0;
+    bool nextPresent = true;
+    for (uint i = 0; i < formatLength; i++) {
+        if (format[i] == '?') {
+            nextPresent = *(in++);
+            if (out.n + 1 > out.size) {
+                out.size += 32768;
+                out.data = realloc(out.data, out.size);
+            }
+            out.data[out.size] = nextPresent;
+            out.n += 1;
+            continue;
+        }
+        if (format[i] == '[') {
+            uint length = 0;
+            uint depth = 1;
+            while (true) {
+                length++;
+                switch (format[i + length]) {
+                case '[':
+                    depth++;
+                    break;
+                case ']':
+                    depth--;
+                    if (depth == 0)
+                        goto done;
+                    break;
+                }
+            }
+        done:
+            if (previousValue != 0) {
+                for (uint j = 0; j < previousValue; j++) {
+                    out = encode_packet_format(in, out, format + i + 1, length);
+                }
+            }
+            i += length + 1;
+        }
+
+        char type = format[i];
+        uint size = 0;
+        if (format[i++] > '0' && format[i] < '9') {
+            char* start = format + i;
+            char* end = start;
+            while (*end != ' ')
+                end++;
+            size = strtol(start, &end, 10);
+            i += end - start;
+        }
+        previousValue = 0;
+
+        if (!nextPresent)
+            continue;
+
+        switch (type) {
+        case 'u':
+        case 'i':
+            if (out.n + size / 8 > out.size) {
+                out.size += 32768;
+                out.data = realloc(out.data, out.size);
+            }
+            out.n += size / 8;
+            for (uint j = 0; j < size / 8; j++)
+                out.data[out.n - j - 1] = *(in++);
+            previousValue = *((int*)out.data + out.n - size / 8);
+            break;
+        case 'b':
+            if (out.n + 1 > out.size) {
+                out.size += 32768;
+                out.data = realloc(out.data, out.size);
+            }
+            *(out.data) = *(in++);
+            break;
+        case 'v':
+            if (out.n + 10 >= out.size) {
+                out.size += 32768;
+                out.data = realloc(out.data, out.size);
+            }
+            if (size == 32) {
+                previousValue = *(int*)in;
+                out.n += encode_varint(out.data + out.n, *(int*)in);
+            } else if (size == 64) {
+                out.n += encode_varlong(out.data + out.n, *(long*)in);
+            }
+            break;
+        case 's':
+            string buffer = *(string*)in;
+            in += sizeof(string);
+            uint length = strlen(buffer);
+            if (out.n + length + 10 >= out.size) {
+                out.size += 32768;
+                out.data = realloc(out.data, out.size);
+            }
+            out.n += encode_varint(out.data + out.n, length);
+            for (uint j = 0; j < length; j++)
+                out.data[out.n + j] = buffer[j];
+            out.n += length;
+            break;
+        }
+    }
+
+    return out;
 }
 
 void packet_send(net_connection* connection, void* packet) {
@@ -264,77 +390,19 @@ void packet_send(net_connection* connection, void* packet) {
         return;
     }
 
-found:
-    uint n = 0;
-    uint size = 32768;
-    byte* buffer = malloc(size);
+found:;
 
-    uint formatLength = strlen(format.format);
-    for (uint i = 0; i < formatLength; i++) {
-        char type = format.format[i];
-        long size = 0;
-        if (format.format[i++] != ' ') {
-            uint start = i;
-            while (format.format[i + 1] != ' ')
-                i++;
-            char* end = format.format + i + 1;
-            size = strtol(format.format + start, &end, 10);
-        }
+    packet_buffer buffer = {.data = malloc(4096), .size = 4096, .n = 0};
+    buffer = encode_packet_format(bytes, buffer, format.format, strlen(format.format));
 
-        switch (type) {
-        case 'u':
-        case 'i':
-            if (n + size >= 32768) {
-                size += 32768;
-                buffer = realloc(buffer, size);
-            }
-            for (uint j = 0; j < size / 8; j++)
-                buffer[n++] = *(bytes++);
-            break;
-        case 'v':
-            if (n + 10 >= 32768) {
-                size += 32768;
-                buffer = realloc(buffer, size);
-            }
-            if (size == 32) {
-                n += encode_varint(buffer + n, *(int*)bytes);
-            } else if (size == 64) {
-                n += encode_varlong(buffer + n, *(long*)bytes);
-            }
-            break;
-        case 'b':
-            if (n + 1 >= 32768) {
-                size += 32768;
-                buffer = realloc(buffer, size);
-            }
-            buffer[n++] = *(bytes++);
-            break;
-        case 's':
-            string str = *(string*)bytes;
-            bytes += sizeof(string);
-            uint length = strlen(str);
-            if (n + length + 10 >= 32768) {
-                size += 32768;
-                buffer = realloc(buffer, size);
-            }
-            n += encode_varint(buffer + n, length);
-            for (uint j = 0; j < length; j++)
-                buffer[n + j] = str[j];
-            n += length;
-            break;
-        }
-
-        i++;
-        continue;
-    }
     byte lengthBuffer[5];
     byte idBuffer[5];
     uint idBufferSize = encode_varint(idBuffer, id);
-    uint lengthBufferSize = encode_varint(lengthBuffer, n + idBufferSize);
+    uint lengthBufferSize = encode_varint(lengthBuffer, buffer.n + idBufferSize);
 
     send(connection->sock, lengthBuffer, lengthBufferSize, 0);
     send(connection->sock, idBuffer, idBufferSize, 0);
-    send(connection->sock, buffer, n, 0);
+    send(connection->sock, buffer.data, buffer.n, 0);
 
-    free(buffer);
+    free(buffer.data);
 }
