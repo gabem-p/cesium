@@ -5,7 +5,8 @@
 enum connection_state {
     STATE_HANDSHAKING,
     STATE_STATUS,
-    STATE_LOGIN
+    STATE_LOGIN,
+    STATE_CONFIGURATION
 };
 
 typedef struct {

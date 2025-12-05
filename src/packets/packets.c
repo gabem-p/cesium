@@ -25,8 +25,11 @@ const packet_format PACKET_FORMATS_STATUS[] = {
 
 const packet_format PACKET_FORMATS_LOGIN[] = {
     {.id = PACKET_ID_SB_L_START, .size = sizeof(packet_sb_l_start), .handler = sb_l_start_handler, .format = "s16 u128"},
+    {.id = PACKET_ID_SB_L_ACK, .size = sizeof(packet_sb_l_ack), .handler = sb_l_ack_handler, .format = ""},
     {.id = PACKET_ID_CB_L_SUCCESS, .size = sizeof(packet_cb_l_success), .handler = null, .format = "u128 s16 v32 [s64 s ?s1024]"},
 };
+
+const packet_format PACKET_FORMATS_CONFIG[] = {};
 
 byte decode_varint(byte* start, int* out) {
     int value = 0;
@@ -228,6 +231,10 @@ enum packet_handle_status packet_handle(net_connection* connection, byte* data) 
         search_sb(PACKET_FORMATS_LOGIN);
         log_warning("cesium:network", "unknown packet with id login:%i", id);
         return HANDLE_UNKNOWN;
+    case STATE_CONFIGURATION:
+        search_sb(PACKET_FORMATS_CONFIG);
+        log_warning("cesium:network", "unknown packet with id configuration:%i", id);
+        return HANDLE_UNKNOWN;
     }
 
 found:
@@ -387,6 +394,9 @@ void packet_send(net_connection* connection, void* packet) {
         return;
     case STATE_LOGIN:
         search_cb(PACKET_FORMATS_LOGIN);
+        return;
+    case STATE_CONFIGURATION:
+        search_cb(PACKET_FORMATS_CONFIG);
         return;
     }
 

@@ -7,8 +7,6 @@
 bool sb_h_handshake_handler(net_connection* connection, void* arg) {
     packet_sb_h_handshake* packet = arg;
 
-    log_info("cesium:network", "handshake intent=%i protocol=%i address=%s:%i", packet->intent, packet->protocolVersion, packet->serverAddress, packet->serverPort);
-
     switch (packet->intent) {
     case INTENT_STATUS:
         connection->state = STATE_STATUS;

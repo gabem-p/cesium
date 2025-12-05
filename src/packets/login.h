@@ -14,6 +14,10 @@ typedef struct packed {
 
 typedef struct packed {
     enum packet_id id;
+} packet_sb_l_ack;
+
+typedef struct packed {
+    enum packet_id id;
 
     uuid_t uuid;
     string username;
@@ -27,3 +31,4 @@ typedef struct packed {
 } packet_cb_l_success;
 
 bool sb_l_start_handler(net_connection* connection, void* packet);
+bool sb_l_ack_handler(net_connection* connection, void* packet);

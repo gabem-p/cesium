@@ -6,3 +6,4 @@ flag:g
 [include]
 path:.
 lib:mstd
+lib:uuid

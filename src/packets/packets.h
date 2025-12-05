@@ -11,8 +11,9 @@ enum packet_id : int {
     PACKET_ID_SB_S_REQUEST = 0x00,
     PACKET_ID_SB_S_PING = 0x01,
 
-    PACKET_ID_SB_L_START = 0x00,
     PACKET_ID_CB_L_SUCCESS = 0x02,
+    PACKET_ID_SB_L_START = 0x00,
+    PACKET_ID_SB_L_ACK = 0x03,
 };
 
 typedef bool (*packet_handler)(net_connection* connection, void* packet);
