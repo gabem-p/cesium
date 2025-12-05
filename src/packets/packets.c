@@ -1,11 +1,14 @@
 #include <string.h>
 #include <sys/socket.h>
+#include <uuid/uuid.h>
 #include <mstd/common.h>
 #include <mstd/types/stack.h>
 #include "src/logging.h"
+#include "src/network.h"
+
 #include "src/packets/handshake.h"
 #include "src/packets/status.h"
-#include "src/network.h"
+#include "src/packets/login.h"
 
 #include "packets.h"
 
@@ -20,7 +23,10 @@ const packet_format PACKET_FORMATS_STATUS[] = {
     {.id = PACKET_ID_CB_S_PONG, .size = sizeof(packet_cb_s_pong), .handler = null, .format = "i64"},
 };
 
-const packet_format PACKET_FORMATS_LOGIN[] = {};
+const packet_format PACKET_FORMATS_LOGIN[] = {
+    {.id = PACKET_ID_SB_L_START, .size = sizeof(packet_sb_l_start), .handler = sb_l_start_handler, .format = "s16 u128"},
+    {.id = PACKET_ID_CB_L_SUCCESS, .size = sizeof(packet_cb_l_success), .handler = null, .format = "u128 s16 v32"}, // u128 s16 v32[s64 s ?s1024]
+};
 
 byte decode_varint(byte* start, int* out) {
     int value = 0;
@@ -72,6 +78,111 @@ byte encode_varlong(byte* start, long value) {
     return i;
 }
 
+byte* do_packet_handle_format(byte* data, string format, uint formatLength, stack* allocStack, byte* packet, uint n) {
+    for (uint i = 0; i < formatLength; i++) {
+        char type;
+        long size = 0;
+        bool array = false;
+        int arraySize = 0;
+        bool present = true;
+
+        if (format[i++] == '?') {
+            present = *(data++);
+            packet[n++] = present;
+        }
+
+        type = format[i++];
+
+        if (format[i] != ' ' &&
+            format[i] != '[' &&
+            format[i] != ']') {
+            uint start = i;
+            while (format[i] != ' ' &&
+                   format[i] != '[' &&
+                   format[i] != ']') {
+                i++;
+            }
+            char* end = format + i;
+            size = strtol(format + start, &end, 10);
+        }
+
+        if (format[i] == '[') {
+            array = true;
+            i++;
+        }
+
+        if (present) {
+            switch (type) {
+            case 'u':
+            case 'i':
+                for (uint j = 0; j < size / 8; j++)
+                    packet[n - j - 1] = *(data++);
+                if (array && size == 32)
+                    arraySize = *(int*)(packet + n);
+                if (array && size == 16)
+                    arraySize = *(short*)(packet + n);
+                if (array && size == 8)
+                    arraySize = *(byte*)(packet + n);
+                n += size / 8;
+                break;
+            case 'v':
+                if (size == 32) {
+                    int value;
+                    data += decode_varint(data, &value);
+                    for (uint j = 0; j < sizeof(int); j++)
+                        packet[n++] = ((byte*)&value)[j];
+                    if (array)
+                        arraySize = value;
+                } else if (size == 64) {
+                    long value;
+                    data += decode_varlong(data, &value);
+                    for (uint j = 0; j < sizeof(long); j++)
+                        packet[n++] = ((byte*)&value)[j];
+                }
+                break;
+            case 'b':
+                packet[n++] = *(data++);
+                break;
+            case 's':
+                int length;
+                data += decode_varint(data, &length);
+                if ((size != 0 && length > size) || (size == 0 && length >= 32768)) {
+                    log_error("cesium:network", "packet string exceeded max character count");
+                    return null;
+                }
+                string str = malloc(length + 1);
+                for (uint j = 0; j < length; j++)
+                    str[j] = *(data++);
+                str[length] = '\0';
+                for (uint j = 0; j < sizeof(string); j++)
+                    packet[n++] = ((byte*)&str)[j];
+                stack_push(allocStack, str);
+                break;
+            case '#':
+                arraySize = size;
+                break;
+            }
+        }
+
+        if (array && present) {
+            uint j = 0;
+            while (format[j + 1] != ']')
+                j++;
+            data = do_packet_handle_format(data, format + i, j, allocStack, packet, n);
+            if (data == null)
+                return null;
+        }
+        if (array) {
+            while (format[i] != ']')
+                i++;
+            i++;
+        }
+
+        i++;
+    }
+    return data;
+}
+
 enum packet_handle_status packet_handle(net_connection* connection, byte* data) {
     enum packet_handle_status status = HANDLE_ERROR;
 
@@ -111,60 +222,7 @@ found:
 
     stack* allocStack = stack_new(256);
 
-    uint formatLength = strlen(format.format);
-    for (uint i = 0; i < formatLength; i++) {
-        char type = format.format[i];
-        long size = 0;
-        if (format.format[i++] != ' ') {
-            uint start = i;
-            while (format.format[i + 1] != ' ')
-                i++;
-            char* end = format.format + i + 1;
-            size = strtol(format.format + start, &end, 10);
-        }
-
-        switch (type) {
-        case 'u':
-        case 'i':
-            n += size / 8;
-            for (uint j = 0; j < size / 8; j++)
-                packet[n - j - 1] = *(data++);
-            break;
-        case 'v':
-            if (size == 32) {
-                int value;
-                data += decode_varint(data, &value);
-                for (uint j = 0; j < sizeof(int); j++)
-                    packet[n++] = ((byte*)&value)[j];
-            } else if (size == 64) {
-                long value;
-                data += decode_varlong(data, &value);
-                for (uint j = 0; j < sizeof(long); j++)
-                    packet[n++] = ((byte*)&value)[j];
-            }
-            break;
-        case 'b':
-            packet[n++] = *(data++);
-            break;
-        case 's':
-            int length;
-            data += decode_varint(data, &length);
-            if ((size != 0 && length > size) || (size == 0 && length >= 32768)) {
-                log_error("cesium:network", "packet string exceeded max character count");
-                goto error;
-            }
-            string str = malloc(length + 1);
-            for (uint j = 0; j < length; j++)
-                str[j] = *(data++);
-            str[length] = '\0';
-            for (uint j = 0; j < sizeof(string); j++)
-                packet[n++] = ((byte*)&str)[j];
-            stack_push(allocStack, str);
-            break;
-        }
-
-        i++;
-    }
+    do_packet_handle_format(data, format.format, strlen(format.format), allocStack, packet, n);
 
     if (format.handler(connection, packet))
         status = HANDLE_SUCCESS;
