@@ -9,6 +9,7 @@
 #include "src/packets/handshake.h"
 #include "src/packets/status.h"
 #include "src/packets/login.h"
+#include "src/packets/configuration.h"
 
 #include "packets.h"
 
@@ -29,7 +30,9 @@ const packet_format PACKET_FORMATS_LOGIN[] = {
     {.id = PACKET_ID_CB_L_SUCCESS, .size = sizeof(packet_cb_l_success), .handler = null, .format = "u128 s16 v32 [s64 s ?s1024]"},
 };
 
-const packet_format PACKET_FORMATS_CONFIG[] = {};
+const packet_format PACKET_FORMATS_CONFIG[] = {
+    {.id = PACKET_ID_SB_C_INFORMATION, .size = sizeof(packet_sb_c_information), .handler = sb_c_information_handler, .format = "s16 i8 v32 b u8 v32 b b v32"},
+};
 
 byte decode_varint(byte* start, int* out) {
     int value = 0;

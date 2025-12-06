@@ -30,7 +30,7 @@ void* thread_network_connection(void* arg) {
 
         byte* data = malloc(length);
         for (uint bytes = 0; bytes < length;)
-            bytes += recv(connection->sock, data + bytes, length, 0);
+            bytes += recv(connection->sock, data + bytes, length - bytes, 0);
 
         packet_handle(connection, data);
 

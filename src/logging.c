@@ -37,9 +37,9 @@ void log_error(string source, string message, ...) {
     va_list args;
     va_start(args, message);
 
-    printf("[%sERRR%s] [%s%s%s] %s",
-           COLOR_ERROR, COLOR_RESET, COLOR_SOURCE, source, COLOR_RESET, COLOR_ERROR);
-    vprintf(message, args);
+    fprintf(stderr, "[%sERRR%s] [%s%s%s] %s",
+            COLOR_ERROR, COLOR_RESET, COLOR_SOURCE, source, COLOR_RESET, COLOR_ERROR);
+    vfprintf(stderr, message, args);
     printf("%s\n", COLOR_RESET);
 
     va_end(args);
